@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ruleta Patrimonio 2026</title>
+  <style>
+    body { font-family: system-ui, Arial; margin:0; background:#f4f4f4; padding:20px; }
+    .wrap { max-width:560px; margin:0 auto; }
+    .panel { background:#fff; border-radius:16px; padding:18px; box-shadow:0 8px 24px rgba(0,0,0,.08); }
+    h1 { font-size:18px; margin:0 0 10px; }
+    p { margin:0 0 14px; color:#444; }
+    button { width:100%; padding:14px; border:0; border-radius:12px; font-size:16px; cursor:pointer; }
+    .primary { background:#111; color:#fff; margin-bottom:10px; }
+    .secondary { background:#e9e9e9; margin-bottom:10px; }
+    .row { display:flex; gap:10px; }
+    .row button { width:50%; }
+    .result { margin-top:12px; padding:14px; border-radius:12px; background:#fafafa; border:1px solid #eee; }
+    .label { font-size:12px; color:#666; }
+    .name { font-size:18px; font-weight:700; margin-top:6px; }
+    .desc { color:#555; margin-top:6px; }
+    .preview { margin-top:14px; background:#fff; border-radius:16px; padding:12px; box-shadow:0 8px 24px rgba(0,0,0,.08); }
+    .previewTitle { font-size:12px; color:#666; margin-bottom:8px; }
+    canvas { width:100%; height:auto; border-radius:14px; display:block; background: transparent; }
+    .note { font-size:12px; color:#666; margin-top:10px; line-height:1.35; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>¿Qué Patrimonio Mundial de Argentina tenés que visitar en 2026?</h1>
+      <p>Tocá “Descubrir”. Cuando se frene, generamos una imagen lista para Stories.</p>
+
+      <button class="primary" id="spin">Descubrir</button>
+
+      <div class="row">
+        <button class="secondary" id="download" disabled>Descargar imagen</button>
+        <button class="secondary" id="share" disabled>Compartir imagen</button>
+      </div>
+
+      <div class="result" id="result" style="display:none;">
+        <div class="label">Tu resultado</div>
+        <div class="name" id="placeName"></div>
+        <div class="desc" id="placeDesc"></div>
+      </div>
+
+      <div class="preview">
+        <div class="previewTitle">Vista previa (Story 1080×1920)</div>
+        <canvas id="story" width="1080" height="1920"></canvas>
+        <div class="note">
+          Tip: si “Compartir imagen” no aparece en tu celu, usá “Descargar imagen” y subila a Instagram Stories desde la galería.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const places = [
+      { name: "Parque Nacional Los Glaciares (Santa Cruz)", desc: "Hielos continentales andinos, lagos turquesas y el glaciar Perito Moreno.", image: "glaciares.jpg" },
+      { name: "Parque Nacional Iguazú (Misiones)", desc: "Selva misionera subtropical y uno de los sistemas de cataratas más impactantes del mundo.", image: "iguazu.jpg" },
+      { name: "Península Valdés (Chubut)", desc: "Costa patagónica ideal para observar ballena franca austral, pingüinos y lobos marinos.", image: "valdes.jpg" },
+      { name: "Parque Nacional Los Alerces (Chubut)", desc: "Bosques milenarios, lagos cristalinos y paisajes glaciarios en un entorno prístino.", image: "alerces.jpg" },
+      { name: "Misiones Jesuíticas de los Guaraníes (Misiones)", desc: "Ruinas de reducciones jesuíticas en piedra roja, en plena selva misionera.", image: "misiones_jesuiticas.jpg" },
+      { name: "Cueva de las Manos (Santa Cruz)", desc: "Arte rupestre milenario con huellas de manos y escenas de caza en el cañadón del Río Pinturas.", image: "cueva_manos.jpg" },
+      { name: "Manzana y Estancias Jesuíticas (Córdoba)", desc: "Conjunto histórico jesuítico: arquitectura, cultura e historia en el corazón de Córdoba.", image: "cordoba_jesuitica.jpg" },
+      { name: "Ischigualasto / Talampaya (San Juan / La Rioja)", desc: "Paisajes desérticos y registro fósil del Triásico en un escenario casi lunar.", image: "ischigualasto_talampaya.jpg" },
+      { name: "Quebrada de Humahuaca (Jujuy)", desc: "Paisaje cultural andino con pueblos históricos, tradiciones vivas y colores únicos.", image: "quebrada_humahuaca.jpg" },
+      { name: "Qhapaq Ñan – Sistema Vial Andino (Argentina)", desc: "Tramos del gran camino andino que conectó comunidades y paisajes a lo largo de los siglos.", image: "qhapaq_nian.jpg" },
+      { name: "Casa Curutchet (La Plata)", desc: "Obra emblemática de Le Corbusier y pieza clave de la arquitectura moderna en Argentina.", image: "casa_curutchet.jpg" }
+    ];
+
+    const spinBtn = document.getElementById("spin");
+    const downloadBtn = document.getElementById("download");
+    const shareBtn = document.getElementById("share");
+    const resultBox = document.getElementById("result");
+    const placeName = document.getElementById("placeName");
+    const placeDesc = document.getElementById("placeDesc");
+
+    const canvas = document.getElementById("story");
+    const ctx = canvas.getContext("2d");
+
+    const imgCache = new Map();
+    function loadImage(filename) {
+      return new Promise((resolve) => {
+        if (imgCache.has(filename)) return resolve(imgCache.get(filename));
+        const img = new Image();
+        img.onload = () => { imgCache.set(filename, img); resolve(img); };
+        img.onerror = () => { resolve(null); };
+        img.src = filename;
+      });
+    }
+
+    let current = null;
+    let lastBlob = null;
+    let lastFile = null;
+
+    function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+      const words = (text || "").split(" ");
+      let line = "";
+      let lines = 0;
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + " ";
+        const testWidth = ctx.measureText(testLine).width;
+
+        if (testWidth > maxWidth && n > 0) {
+          ctx.fillText(line.trim(), x, y);
+          line = words[n] + " ";
+          y += lineHeight;
+          lines++;
+          if (maxLines && lines >= maxLines) return y;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line.trim(), x, y);
+      return y + lineHeight;
+    }
+
+    function drawCoverImage(img, x, y, w, h) {
+      const iw = img.width, ih = img.height;
+      const ir = iw / ih;
+      const wr = w / h;
+
+      let sx, sy, sw, sh;
+      if (ir > wr) {
+        sh = ih;
+        sw = ih * wr;
+        sx = (iw - sw) / 2;
+        sy = 0;
+      } else {
+        sw = iw;
+        sh = iw / wr;
+        sx = 0;
+        sy = (ih - sh) / 2;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+    }
+
+    async function drawStoryCard(place) {
+      ctx.clearRect(0, 0, 1080, 1920);
+
+      // Fondo
+      const g = ctx.createLinearGradient(0, 0, 1080, 1920);
+      g.addColorStop(0, "#0f172a");
+      g.addColorStop(0.5, "#1f2937");
+      g.addColorStop(1, "#0b1324");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 1080, 1920);
+
+      // Título
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "700 54px system-ui, -apple-system, Segoe UI, Arial";
+      ctx.fillText("Tu Patrimonio 2026", 80, 160);
+
+      // Subtítulo
+      ctx.globalAlpha = 0.85;
+      ctx.font = "400 34px system-ui, -apple-system, Segoe UI, Arial";
+      ctx.fillText("¿Qué sitio te toca visitar este año?", 80, 220);
+      ctx.globalAlpha = 1;
+
+      // Foto
+      const heroX = 80, heroY = 280, heroW = 920, heroH = 520;
+      const img = await loadImage(place.image);
+
+      if (img) {
+        // Sombra detrás
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.roundRect(heroX + 8, heroY + 12, heroW, heroH, 40);
+        ctx.fill();
+        ctx.restore();
+
+        // Clip
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(heroX, heroY, heroW, heroH, 40);
+        ctx.clip();
+
+        drawCoverImage(img, heroX, heroY, heroW, heroH);
+
+        // Degradado sutil abajo
+        const gg = ctx.createLinearGradient(0, heroY + heroH - 220, 0, heroY + heroH);
+        gg.addColorStop(0, "rgba(0,0,0,0)");
+        gg.addColorStop(1, "rgba(0,0,0,0.28)");
+        ctx.fillStyle = gg;
+        ctx.fillRect(heroX, heroY, heroW, heroH);
+
+        ctx.restore();
+
+        // Borde fino
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(heroX, heroY, heroW, heroH, 40);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // Fallback
+        ctx.fillStyle = "rgba(255,255,255,0.12)";
+        ctx.beginPath();
+        ctx.roundRect(heroX, heroY, heroW, heroH, 40);
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(255,255,255,0.80)";
+        ctx.font = "500 30px system-ui, -apple-system, Segoe UI, Arial";
+        ctx.fillText("No se encontró la imagen:", heroX + 30, heroY + 70);
+        ctx.font = "700 34px system-ui, -apple-system, Segoe UI, Arial";
+        ctx.fillText(place.image, heroX + 30, heroY + 120);
+      }
+
+      // ✅ Aire real entre foto y card + menos vacío abajo
+      const GAP_BETWEEN = 44;  // separación foto-card (antes quedaba pegado)
+      const cardX = 80;
+      const cardY = heroY + heroH + GAP_BETWEEN; // 280+520+44=844
+      const cardW = 920;
+      const cardH = 880; // más alta: reduce el “pozo” de azul
+
+      // Sombra card
+      ctx.save();
+      ctx.globalAlpha = 0.20;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.roundRect(cardX + 10, cardY + 16, cardW, cardH, 40);
+      ctx.fill();
+      ctx.restore();
+
+      // Fondo card
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, cardH, 40);
+      ctx.fill();
+
+      if (place.name || place.desc) {
+        // Tag
+        ctx.save();
+        ctx.fillStyle = "#111827";
+        ctx.globalAlpha = 0.08;
+        ctx.beginPath();
+        ctx.roundRect(cardX + 60, cardY + 60, 300, 70, 35);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.fillStyle = "#111827";
+        ctx.font = "600 30px system-ui, -apple-system, Segoe UI, Arial";
+        ctx.fillText("Resultado", cardX + 90, cardY + 108);
+
+        // Nombre
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "800 58px system-ui, -apple-system, Segoe UI, Arial";
+        let y = cardY + 200;
+        y = wrapText(ctx, place.name, cardX + 60, y, cardW - 120, 72, 3);
+
+        // Descripción
+        ctx.fillStyle = "#334155";
+        ctx.font = "400 40px system-ui, -apple-system, Segoe UI, Arial";
+        y += 16;
+        wrapText(ctx, place.desc, cardX + 60, y, cardW - 120, 56, 6);
+      }
+
+      // CTA
+      ctx.save();
+      ctx.fillStyle = "#0f172a";
+      ctx.globalAlpha = 0.08;
+      ctx.beginPath();
+      ctx.roundRect(cardX + 60, cardY + cardH - 140, cardW - 120, 92, 30);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "600 34px system-ui, -apple-system, Segoe UI, Arial";
+      ctx.fillText("Compartilo en tus Stories ✨", cardX + 100, cardY + cardH - 82);
+
+      // ✅ Logo eliminado (no se dibuja nada abajo)
+    }
+
+    function canvasToBlob() {
+      return new Promise((resolve) => {
+        canvas.toBlob((b) => resolve(b), "image/png", 1.0);
+      });
+    }
+
+    async function generateShareAsset(place) {
+      await drawStoryCard(place);
+      const blob = await canvasToBlob();
+      lastBlob = blob;
+      lastFile = new File([blob], "patrimonio-2026.png", { type: "image/png" });
+    }
+
+    function pickRandom() {
+      return places[Math.floor(Math.random() * places.length)];
+    }
+
+    spinBtn.addEventListener("click", async () => {
+      resultBox.style.display = "block";
+      downloadBtn.disabled = true;
+      shareBtn.disabled = true;
+
+      let t = 0;
+      const interval = setInterval(() => {
+        current = pickRandom();
+        placeName.textContent = current.name;
+        placeDesc.textContent = current.desc;
+        t++;
+        if (t > 18) {
+          clearInterval(interval);
+          generateShareAsset(current).then(() => {
+            downloadBtn.disabled = false;
+            shareBtn.disabled = false;
+          });
+        }
+      }, 110);
+    });
+
+    downloadBtn.addEventListener("click", async () => {
+      if (!current) return;
+      if (!lastBlob) await generateShareAsset(current);
+
+      const url = URL.createObjectURL(lastBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "mi-patrimonio-2026.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    shareBtn.addEventListener("click", async () => {
+      if (!current) return;
+      if (!lastFile) await generateShareAsset(current);
+
+      const text = `Mi Patrimonio Mundial para visitar en 2026 es: ${current.name} ✨`;
+
+      if (navigator.canShare && navigator.canShare({ files: [lastFile] }) && navigator.share) {
+        try {
+          await navigator.share({ files: [lastFile], title: "Ruleta Patrimonio 2026", text });
+          return;
+        } catch (e) {}
+      }
+      alert("En este dispositivo no se puede compartir el archivo directo. Usá 'Descargar imagen' y subila a Stories desde la galería 🙂");
+    });
+
+    // roundRect polyfill
+    if (!CanvasRenderingContext2D.prototype.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+        this.beginPath();
+        this.moveTo(x + r, y);
+        this.lineTo(x + w - r, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r);
+        this.lineTo(x + w, y + h - r);
+        this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        this.lineTo(x + r, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r);
+        this.lineTo(x, y + r);
+        this.quadraticCurveTo(x, y, x + r, y);
+        this.closePath();
+        return this;
+      }
+    }
+
+    // Vista inicial vacía: no dibujamos nada hasta tocar "Descubrir"
+  </script>
+</body>
+</html>
